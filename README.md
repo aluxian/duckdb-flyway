@@ -2,13 +2,13 @@
 
 A simple migration manager for DuckDB databases, inspired by Flyway.
 
-## Why?
+## Features
 
-- Simple and lightweight
-- Automatic migration discovery
-- Transaction safety
-- Migration version validation
-- Customizable logging
+- Simple and lightweight Python-based migrations
+- Automatic migration discovery from directory
+- Transaction safety - each migration runs in its own transaction
+- Migration version validation ensures correct ordering
+- Customizable logging via standard Python logging
 
 ## Installation
 
@@ -18,9 +18,13 @@ pip install duckdb-flyway
 
 ## Usage
 
-1. Create a migrations directory in your project:
+1. Create a migrations directory in your project. Migration files must:
+   - Start with 'm'
+   - End with '.py'
+   - Export a 'migration' object
+   - Have unique, sortable IDs (typically timestamps)
 
-```python
+```
 migrations/
   m20240320000001_create_users.py
   m20240320000002_add_email.py
@@ -30,12 +34,14 @@ migrations/
 
 ```python
 from duckdb_flyway import Migration
+from duckdb import DuckDBPyConnection
 
 def run(con: DuckDBPyConnection) -> None:
     """Create the users table.
-    
+
     Args:
-        con: DuckDB connection to use for the migration
+        con: DuckDB connection to use for the migration.
+            Transaction management is handled automatically.
     """
     con.execute("""
         CREATE TABLE users (
@@ -45,6 +51,7 @@ def run(con: DuckDBPyConnection) -> None:
         );
     """)
 
+# ID must be unique and sortable (typically a timestamp)
 migration = Migration("20240320000001", run)
 ```
 
@@ -52,17 +59,31 @@ migration = Migration("20240320000001", run)
 
 ```python
 import duckdb
-from duckdb_flyway import DuckDBFlyway
+from duckdb_flyway import DuckDBFlyway, MigrationError
 
-# Connect to your database
-con = duckdb.connect("path/to/db.duckdb")
+try:
+    # Connect to your database
+    con = duckdb.connect("path/to/db.duckdb")
 
-# Create migrations service with migrations directory
-flyway = DuckDBFlyway(con, migrations_dir="path/to/migrations")
+    # Create migrations service - migrations_dir is required
+    flyway = DuckDBFlyway(con, migrations_dir="path/to/migrations")
 
-# Run all pending migrations
-flyway.run_migrations(flyway.find_migrations())
+    # Load and run all pending migrations
+    migrations = flyway.find_migrations()
+    flyway.run_migrations(migrations)
+
+except MigrationError as e:
+    print(f"Migration failed: {e}")
+    # Handle migration failure
 ```
+
+## How it Works
+
+- Migrations are discovered from Python files in the migrations directory
+- Each migration runs in its own transaction for safety
+- Migrations are tracked in a `schema_migrations` table
+- New migrations must have higher IDs than previously applied ones
+- Failed migrations are rolled back automatically
 
 ## Development
 
