@@ -13,12 +13,19 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Alexandru Rosianu", email = "me@aluxian.com" }]
-keywords = []
-classifiers = []
-dependencies = [
-    "duckdb>=1.1.3",
-    "loguru>=0.7.3",
+keywords = ["duckdb", "migrations", "database", "flyway"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
+dependencies = ["duckdb>=1.1.3", "loguru>=0.7.3"]
 
 [project.urls]
 Homepage = "https://github.com/aluxian/duckdb-flyway"
