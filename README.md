@@ -1,6 +1,6 @@
 # DuckDB Flyway (migration manager)
 
-A simple migration manager for DuckDB databases, inspired by Flyway.
+A simple migration manager for DuckDB databases. It's called flyway to follow the obligatory duck-oriented naming conventions.
 
 ## Features
 

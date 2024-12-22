@@ -7,7 +7,7 @@ packages = ["src/duckdb_flyway"]
 
 [project]
 name = "duckdb-flyway"
-version = "0.1.0"
+version = "0.1.1"
 description = "DuckDB migrations tool"
 readme = "README.md"
 requires-python = ">=3.12"
