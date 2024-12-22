@@ -1,4 +1,3 @@
-from .duckdb_flyway import TODO
+from .duckdb_flyway import DuckDBFlyway, Migration, MigrationError
 
-
-__all__ = ["CloudflareAccessJWT", "enforce_cf_access"]
+__all__ = ["DuckDBFlyway", "Migration", "MigrationError"]

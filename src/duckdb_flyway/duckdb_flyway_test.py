@@ -1,33 +1,104 @@
+import duckdb
 import pytest
 from duckdb import DuckDBPyConnection
-import duckdb
-from migrations.types import Migration
-from .migrations_service import MigrationsService, MigrationError
+
+from duckdb_flyway import Migration
+from .duckdb_flyway import DuckDBFlyway, MigrationError
+
+
+def create_test_migration(id: str, sql: str = None) -> Migration:
+    """Create a test migration with optional SQL.
+
+    Args:
+        id: Migration ID
+        sql: Optional SQL to execute in the migration
+
+    Returns:
+        Migration object ready for testing
+    """
+
+    def run(con):
+        if sql:
+            con.execute(sql)
+
+    return Migration(id, run)
+
+
+def table_exists(con: DuckDBPyConnection, table_name: str) -> bool:
+    """Check if a table exists in the database.
+
+    Args:
+        con: Database connection
+        table_name: Name of table to check
+
+    Returns:
+        True if table exists, False otherwise
+    """
+    result = con.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = ?", [table_name]
+    ).fetchone()
+    return bool(result)
+
+
+def get_table_names(con: DuckDBPyConnection) -> list[str]:
+    """Get list of all table names in database.
+
+    Args:
+        con: Database connection
+
+    Returns:
+        List of table names
+    """
+    return [
+        row[0]
+        for row in con.execute(
+            "SELECT table_name FROM information_schema.tables ORDER BY table_name"
+        ).fetchall()
+    ]
 
 
 @pytest.fixture(scope="function")
-def test_db_connection():
-    """Create an in-memory database connection for testing"""
+def test_db_connection() -> DuckDBPyConnection:
+    """Create an in-memory database connection for testing.
+
+    Returns:
+        DuckDBPyConnection: Fresh in-memory database connection
+    """
     con = duckdb.connect(":memory:")
     yield con
     con.close()
 
 
 @pytest.fixture(scope="function")
-def service(test_db_connection):
-    """Create MigrationsService instance with fresh connection"""
-    return MigrationsService(test_db_connection)
+def flyway(test_db_connection, tmp_path) -> DuckDBFlyway:
+    """Create DuckDBFlyway instance with fresh connection and temp migrations dir.
+
+    Args:
+        test_db_connection: Database connection fixture
+        tmp_path: Temporary directory path fixture
+
+    Returns:
+        DuckDBFlyway: Configured instance
+    """
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir()
+    return DuckDBFlyway(test_db_connection, migrations_dir=migrations_dir)
 
 
-def test_init_migrations_table(service):
-    """Test migrations table creation"""
-    service.init_migrations_table()
+def test_init_schema_migrations(flyway: DuckDBFlyway) -> None:
+    """Test schema migrations table creation.
+
+    Verifies that:
+    - The schema_migrations table is created
+    - The table has the correct columns and types
+    """
+    flyway.init_schema_migrations()
 
     # Verify table exists and has correct schema
-    result = service.con.execute("""
+    result = flyway.con.execute("""
         SELECT column_name, data_type 
         FROM information_schema.columns 
-        WHERE table_name = '_migrations'
+        WHERE table_name = 'schema_migrations'
         ORDER BY column_name;
     """).fetchall()
 
@@ -36,25 +107,28 @@ def test_init_migrations_table(service):
     assert result[1][0] == "id"
 
 
-def test_get_applied_migrations_empty(service):
-    """Test getting applied migrations when none exist"""
-    service.init_migrations_table()
-    assert service.get_applied_migrations() == []
+def test_get_applied_migrations_empty(flyway: DuckDBFlyway) -> None:
+    """Test getting applied migrations when none exist."""
+    flyway.init_schema_migrations()
+    assert flyway.get_applied_migrations() == []
 
 
-def test_get_applied_migrations(service):
-    """Test getting applied migrations"""
-    service.init_migrations_table()
-    service.con.execute(
-        "INSERT INTO _migrations (id) VALUES (?), (?)",
+def test_get_applied_migrations(flyway: DuckDBFlyway) -> None:
+    """Test getting applied migrations.
+
+    Verifies that migrations are returned in correct order and contain expected IDs.
+    """
+    flyway.init_schema_migrations()
+    flyway.con.execute(
+        "INSERT INTO schema_migrations (id) VALUES (?), (?)",
         ["20240320000000", "20240320000001"],
     )
 
-    applied = service.get_applied_migrations()
+    applied = flyway.get_applied_migrations()
     assert applied == ["20240320000000", "20240320000001"]
 
 
-def test_validate_migration_order_valid(service):
+def test_validate_migration_order_valid(flyway: DuckDBFlyway) -> None:
     """Test validation passes for correctly ordered migrations"""
     applied = {"20240320000000", "20240320000001"}
     migrations = [
@@ -64,10 +138,10 @@ def test_validate_migration_order_valid(service):
     ]
 
     # Should not raise exception
-    service.validate_migration_order(migrations, applied)
+    flyway.validate_migration_order(migrations, applied)
 
 
-def test_validate_migration_order_invalid(service):
+def test_validate_migration_order_invalid(flyway: DuckDBFlyway) -> None:
     """Test validation fails for out-of-order migrations"""
     applied = {"20240320000002"}
     migrations = [
@@ -76,15 +150,21 @@ def test_validate_migration_order_invalid(service):
     ]
 
     with pytest.raises(MigrationError) as exc_info:
-        service.validate_migration_order(migrations, applied)
-    assert "Found new migration(s) with ID lower than latest applied migration" in str(
+        flyway.validate_migration_order(migrations, applied)
+    assert "Invalid migration order: found new migration(s) with ID lower than " in str(
         exc_info.value
     )
 
 
-def test_apply_migration_creates_table_and_records_success(service, mocker):
-    """Test successful migration application creates table and records migration"""
-    service.init_migrations_table()
+def test_apply_migration_creates_table_and_records_success(flyway, mocker) -> None:
+    """Test successful migration application.
+
+    Verifies that:
+    - The migration function is called with correct connection
+    - The migration is recorded in schema_migrations table
+    - The changes from the migration are committed
+    """
+    flyway.init_schema_migrations()
 
     # Mock migration that creates a test table
     migration_func = mocker.Mock(autospec=True)
@@ -93,14 +173,14 @@ def test_apply_migration_creates_table_and_records_success(service, mocker):
     )
 
     migration = Migration("20240320000001", migration_func)
-    service.apply_migration(migration)
+    flyway._apply_migration(migration)
 
     # Verify migration was recorded
-    result = service.con.execute("SELECT id FROM _migrations").fetchone()
+    result = flyway.con.execute("SELECT id FROM schema_migrations").fetchone()
     assert result[0] == "20240320000001"
 
     # Verify migration effect (table exists)
-    result = service.con.execute("""
+    result = flyway.con.execute("""
         SELECT table_name 
         FROM information_schema.tables 
         WHERE table_name = 'test'
@@ -112,9 +192,9 @@ def test_apply_migration_creates_table_and_records_success(service, mocker):
     assert isinstance(migration_func.call_args[0][0], DuckDBPyConnection)
 
 
-def test_apply_migration_failure(service):
+def test_apply_migration_failure(flyway) -> None:
     """Test failed migration rolls back changes"""
-    service.init_migrations_table()
+    flyway.init_schema_migrations()
 
     # Create a migration that will fail by creating the same table twice
     def run_migration(con: DuckDBPyConnection):
@@ -124,15 +204,15 @@ def test_apply_migration_failure(service):
     migration = Migration("20240320000001", run_migration)
 
     with pytest.raises(MigrationError) as exc_info:
-        service.apply_migration(migration)
+        flyway._apply_migration(migration)
     assert "Migration 20240320000001 failed" in str(exc_info.value)
 
     # Verify migration was not recorded
-    result = service.con.execute("SELECT COUNT(*) FROM _migrations").fetchone()
+    result = flyway.con.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()
     assert result[0] == 0
 
     # Verify the table was not created (rolled back)
-    result = service.con.execute("""
+    result = flyway.con.execute("""
         SELECT COUNT(*) 
         FROM information_schema.tables 
         WHERE table_name = 'test_table'
@@ -140,37 +220,42 @@ def test_apply_migration_failure(service):
     assert result[0] == 0
 
 
-def test_run_migrations_success(service):
+def test_run_migrations_success(flyway) -> None:
     """Test running multiple migrations successfully"""
-    # Create test migrations
+    migrations = [
+        create_test_migration("20240320000001", "CREATE TABLE test1 (id INTEGER)"),
+        create_test_migration("20240320000002", "CREATE TABLE test2 (id INTEGER)"),
+    ]
+
+    flyway.run_migrations(migrations)
+
+    assert flyway.get_applied_migrations() == ["20240320000001", "20240320000002"]
+    assert table_exists(flyway.con, "test1")
+    assert table_exists(flyway.con, "test2")
+
+
+def test_custom_logger(flyway, mocker) -> None:
+    """Test that custom logger is used"""
+    custom_logger = mocker.Mock()
+    flyway = DuckDBFlyway(
+        flyway.con, migrations_dir=flyway.migrations_dir, logger=custom_logger
+    )
+
     migrations = [
         Migration(
             "20240320000001",
             lambda con: con.execute("CREATE TABLE test1 (id INTEGER);"),
-        ),
-        Migration(
-            "20240320000002",
-            lambda con: con.execute("CREATE TABLE test2 (id INTEGER);"),
-        ),
+        )
     ]
 
-    service.run_migrations(migrations)
+    flyway.run_migrations(migrations)
 
-    # Verify both migrations were recorded
-    result = service.con.execute("SELECT id FROM _migrations ORDER BY id").fetchall()
-    assert [r[0] for r in result] == ["20240320000001", "20240320000002"]
-
-    # Verify both tables exist
-    tables = service.con.execute("""
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_name IN ('test1', 'test2')
-        ORDER BY table_name
-    """).fetchall()
-    assert [t[0] for t in tables] == ["test1", "test2"]
+    # Verify custom logger was called
+    custom_logger.info.assert_any_call("Applying migration 20240320000001")
+    custom_logger.info.assert_any_call("Successfully applied migration 20240320000001")
 
 
-def test_run_migrations_failure(service):
+def test_run_migrations_failure(flyway) -> None:
     """Test that migrations are applied one by one and stop at failure"""
     # Create test migrations with one that fails
     migrations = [
@@ -186,15 +271,15 @@ def test_run_migrations_failure(service):
     ]
 
     with pytest.raises(MigrationError):
-        service.run_migrations(migrations)
+        flyway.run_migrations(migrations)
 
     # Verify only first migration was recorded
-    result = service.con.execute("SELECT id FROM _migrations").fetchall()
+    result = flyway.con.execute("SELECT id FROM schema_migrations").fetchall()
     assert len(result) == 1
     assert result[0][0] == "20240320000001"
 
     # Verify only first table was created
-    tables = service.con.execute("""
+    tables = flyway.con.execute("""
         SELECT table_name 
         FROM information_schema.tables 
         WHERE table_name IN ('test1', 'test3')
@@ -204,6 +289,10 @@ def test_run_migrations_failure(service):
     assert tables[0][0] == "test1"
 
 
-def raise_exception():
-    """Helper function to raise an exception"""
+def raise_exception() -> None:
+    """Helper function to raise an exception for testing error scenarios.
+
+    Raises:
+        Exception: Always raises with message "Migration failed"
+    """
     raise Exception("Migration failed")
