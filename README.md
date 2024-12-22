@@ -1,5 +1,9 @@
 # DuckDB Flyway (migration manager)
 
+[![PyPI](https://img.shields.io/pypi/v/duckdb-flyway)](https://pypi.org/project/duckdb-flyway/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/duckdb-flyway)](https://pypi.org/project/duckdb-flyway/)
+[![PyPI - License](https://img.shields.io/pypi/l/duckdb-flyway)](https://pypi.org/project/duckdb-flyway/)
+
 A simple migration manager for DuckDB databases. It's called flyway to follow the obligatory duck-oriented naming conventions.
 
 ## Features
