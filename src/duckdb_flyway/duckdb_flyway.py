@@ -179,3 +179,14 @@ class DuckDBFlyway:
         except Exception as e:
             self.logger.error(f"Migration failed: {str(e)}")
             raise MigrationError(f"Failed to run migrations: {str(e)}") from e
+
+    def find_and_run_migrations(self) -> None:
+        """Find and run all pending migrations.
+        
+        Convenience method that combines find_migrations() and run_migrations().
+        
+        Raises:
+            MigrationError: If any migration fails to apply
+        """
+        migrations = self.find_migrations()
+        self.run_migrations(migrations)

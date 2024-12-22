@@ -68,9 +68,8 @@ try:
     # Create migrations service - migrations_dir is required
     flyway = DuckDBFlyway(con, migrations_dir="path/to/migrations")
 
-    # Load and run all pending migrations
-    migrations = flyway.find_migrations()
-    flyway.run_migrations(migrations)
+    # Find and run all pending migrations
+    flyway.find_and_run_migrations()
 
 except MigrationError as e:
     print(f"Migration failed: {e}")

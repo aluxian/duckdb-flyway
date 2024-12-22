@@ -255,6 +255,27 @@ def test_custom_logger(flyway, mocker) -> None:
     custom_logger.info.assert_any_call("Successfully applied migration 20240320000001")
 
 
+def test_find_and_run_migrations(flyway, tmp_path) -> None:
+    """Test the find_and_run_migrations helper method"""
+    # Create a test migration file
+    migration_file = tmp_path / "migrations" / "m20240320000001_test.py"
+    migration_file.write_text("""
+from duckdb_flyway import Migration
+
+def run(con):
+    con.execute("CREATE TABLE test_table (id INTEGER);")
+
+migration = Migration("20240320000001", run)
+""")
+
+    # Run migrations
+    flyway.find_and_run_migrations()
+
+    # Verify migration was applied
+    assert "test_table" in get_table_names(flyway.con)
+    assert flyway.get_applied_migrations() == ["20240320000001"]
+
+
 def test_run_migrations_failure(flyway) -> None:
     """Test that migrations are applied one by one and stop at failure"""
     # Create test migrations with one that fails
